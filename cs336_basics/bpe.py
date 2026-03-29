@@ -253,21 +253,14 @@ class BytePairEncoder:
     
     def train(self):
         pt_stats = self.get_pt_stats()
-        substats_splits = [df.num.to_dict() for _, df in pt_stats.groupby('procgroup')]
-        pt_stats = pt_stats.num.to_dict()
-        n_proc = len(substats_splits)
-        procgroup_splits = [
-            {
-                pt: [bytes([c]) for c in list(pt.encode('utf-8'))]
-                for pt in sss
-            }
-            for sss in substats_splits
-        ]
+        all_splits = {
+            pt: [bytes([c]) for c in list(pt.encode('utf-8'))]
+            for pt in pt_stats 
+        }
         str_lookup = {
             pt: pt.encode('utf-8')
             for pt in pt_stats
         }
-        all_splits = {k: v for pgs in procgroup_splits for k, v in pgs.items()}
 
         vocab = {}
         rocab = {}
@@ -362,7 +355,7 @@ class BytePairEncoder:
         num_processes = self.num_processes
         special_split_token = self.special_split_token
 
-        if pt_path is not None:
+        if pt_path is not None and os.path.exists(pt_path):
             print('Loading dumped pre-token counts!')
             with open(pt_path, 'r') as pf:
                 pt_counts = json.load(pf)
@@ -375,28 +368,17 @@ class BytePairEncoder:
                 special_tokens=special_tokens,
                 special_split_token=special_split_token,
             )
+            print(f'Pre-tokenization finished with {len(pt_counts)} pre-tokens')
+            if pt_path is not None:
+                with open(pt_path, 'w') as pf:
+                    json.dump(pt_counts, pf)
+                print('Written pre-token counts to', pt_path)
         
         # pre-processing
-        pt_stats = pd.DataFrame({
-            'charlen': [len(pt.encode('utf-8')) for pt in pt_counts],
-            'num': [pt_counts[pt] for pt in pt_counts]
-        }, index=pt_counts.keys())
-        pt_stats = pt_stats.loc[[pt for pt in pt_stats.index if pt not in self.special_strings]].copy()
-        
-        np.random.seed(sum(pt_counts.values()))
-        ishuffle = np.arange(pt_stats.shape[0]).astype(int)
-        np.random.shuffle(ishuffle)
-
-        pt_stats = pt_stats.iloc[ishuffle].copy()
-        cum_charlen = pt_stats.charlen.cumsum()
-        splitlen = pt_stats.charlen.sum() // num_processes
-        cum_splitlen = np.arange(0, num_processes * splitlen, splitlen)
-        split_indices = np.searchsorted(cum_charlen.values, cum_splitlen)
-        pt_procgroups = np.zeros(pt_stats.shape[0])
-        for si in split_indices[1:]:
-            pt_procgroups[si:] += 1
-        pt_stats['procgroup'] = pt_procgroups.astype(int)
-        return pt_stats
+        for special_str in self.special_strings:
+            if special_str in pt_counts:
+                _ = pt_counts.pop(special_str)
+        return pt_counts
 
 
 def train_bpe(
@@ -424,14 +406,17 @@ def train_bpe(
 
 if __name__ == '__main__':
     test_path = '../tests/fixtures/corpus.en'
+    owt_train_path = '../data/owt_train.txt'
+    owt_valid_path = '../data/owt_valid.txt'
     bpeobj = BytePairEncoder()
     bpeobj.init_train(
-        # input_path=valid_path,
-        input_path=test_path,
-        vocab_size=300,
+        input_path=owt_train_path,
+        vocab_size=1000,
         special_tokens=['<|endoftext|>'],
-        pt_chunk_size=int(1e6),
-        # pt_path='data/pt_counts.json',
-        num_processes=1,
+        pt_chunk_size=int(4e6),
+        pt_num_chunks=50,
+        # pt_path='../data/owt_train_pt_counts.json',
+        num_processes=2,
     )
-    bpeobj.train()
+    bpeobj.get_pt_stats()
+    # bpeobj.train()
