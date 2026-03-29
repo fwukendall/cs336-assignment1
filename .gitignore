@@ -3,6 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+*.prof
+
+data/
+*.ipynb
+
 # C extensions
 *.so
 
