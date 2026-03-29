@@ -9,6 +9,7 @@ import multiprocessing as mp
 import json
 import numpy as np
 import pandas as pd
+import time
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
@@ -145,6 +146,10 @@ def broadcast_merge(pt_split: List[bytes], merge: tuple[bytes, bytes], num_occur
     m3 = m1 + m2
     if m3 not in b''.join(pt_split) or m1 not in pt_split:
         return (pt_split, counter)
+    if len(m3) >= 10:
+        pairs = list(zip(pt_split[:-1], pt_split[1:]))
+        if (m1, m2) not in pairs:
+            return (pt_split, counter)
     can_find = True
     new_split = []
     sub_split = pt_split[:]
@@ -184,13 +189,14 @@ def broadcast_merge(pt_split: List[bytes], merge: tuple[bytes, bytes], num_occur
 def pt_batch_merge(
     pt_stats: Dict[str, int],
     pt_splits: Dict[str, List[bytes]],
+    str_lookup: Dict[str, bytes],
     merge: tuple[bytes, bytes],
 ) -> Tuple[Dict[str, List[bytes]], Dict[Tuple[bytes, bytes], int]]:
     change_counter = Counter()
     updated_splits = {}
     after_merge = b''.join(merge)
     for pt, num in pt_stats.items():
-        if after_merge not in b''.join(pt_splits[pt]):
+        if after_merge not in str_lookup[pt]:
             continue
         updated_splits[pt], change_counter = broadcast_merge(pt_splits[pt], merge, num, counter=change_counter)
     pt_splits.update(updated_splits)
@@ -198,12 +204,16 @@ def pt_batch_merge(
 
 def safe_counter_add(d1: Counter, d2: Counter):
     for k, v in d2.items():
-        d1[k] += v
-        # if v > 0:
-        #     d1[k] += v
-        # elif k in d1:
-        #     d1[k] += v
+        if v > 0:
+            d1[k] += v
+        elif k in d1:
+            d1[k] += v
     return
+
+def safe_counter_deduct(d1: Counter, d2: Counter):
+    for k, v in d2.items():
+        if v < 0 and k in d1:
+            d1[k] += v
 
 class BytePairEncoder:
     def __init__(self):
@@ -253,6 +263,10 @@ class BytePairEncoder:
             }
             for sss in substats_splits
         ]
+        str_lookup = {
+            pt: pt.encode('utf-8')
+            for pt in pt_stats
+        }
         all_splits = {k: v for pgs in procgroup_splits for k, v in pgs.items()}
 
         vocab = {}
@@ -277,11 +291,19 @@ class BytePairEncoder:
         
         sptc = count_subpts(pt_stats, 2, 1)
         # sort on count first descendingly, then on token-candidate lexigraphy ascendingly
-        candidates = sorted(sptc.items(), key=lambda tup: (tup[1], tup[0]), reverse=True)[:num_remain]
+        candidates = sorted(sptc.items(), key=lambda tup: (tup[1], tup[0]), reverse=True)[:2*num_remain+100]
+        hot_sptc = Counter(dict(candidates))
+        cold_sptc = Counter({k: v for k, v in sptc.items() if k not in hot_sptc})
+        if cold_sptc:
+            cold_max = max(cold_sptc.values())
+        else:
+            cold_max = 0
+        # sptc = Counter(dict(candidates))
 
+        checkpt = time.time()
         while base < self.vocab_size and candidates and candidates[0][1] > 0:
             new_merge, _ = candidates[0]
-            _ = sptc.pop(new_merge)
+            _ = hot_sptc.pop(new_merge)
 
             merges.append(new_merge)
             new_token = new_merge[0] + new_merge[1]
@@ -290,26 +312,38 @@ class BytePairEncoder:
             base += 1
             num_remain -= 1
 
-            merge_call = partial(pt_batch_merge, merge=new_merge)
-            # If I switch on multiprocessing, the performance degrades rapidly!
-            # if n_proc > 1:
-            #     with mp.Pool(n_proc) as pool:
-            #         results = pool.starmap(merge_call, zip(substats_splits, procgroup_splits))
-            # else:
-            #     results = [merge_call(substats_splits[0], procgroup_splits[0])]
-            results = [merge_call(pt_stats, all_splits)]
-            procgroup_splits = [r[0] for r in results]
-            for r in results:
-                safe_counter_add(sptc, r[1])
+            result = pt_batch_merge(pt_splits=all_splits, pt_stats=pt_stats, merge=new_merge, str_lookup=str_lookup)
+            safe_counter_add(hot_sptc, result[1])
+            safe_counter_deduct(cold_sptc, result[1])
+            all_splits = result[0]
 
-            # result = pt_batch_merge(pt_stats, all_splits, new_merge)
-            # safe_counter_add(sptc, result[1])
-            # all_splits = result[0]
+            candidates = sorted(hot_sptc.items(), key=lambda tup: (tup[1], tup[0]), reverse=True)[:2*num_remain+100]
+            if cold_max >= candidates[0][1]:
+                print('Fishing out of cold_sptc')
+                cold_candidates = sorted(cold_sptc.items(), key=lambda tup: (tup[1], tup[0]), reverse=True)
+                for i in range(100):
+                    if not cold_sptc:
+                        break
+                    hot_sptc[cold_candidates[i][0]] = cold_sptc.pop(cold_candidates[i][0])
+                candidates = sorted(hot_sptc.items(), key=lambda tup: (tup[1], tup[0]), reverse=True)[:2*num_remain+100]
+                if cold_sptc:
+                    cold_max = max(cold_sptc.values())
+                else:
+                    cold_max = 0
 
-            candidates = sorted(sptc.items(), key=lambda tup: (tup[1], tup[0]), reverse=True)[:num_remain]
+            if len(hot_sptc) > 2 * len(candidates) + 500:
+                print('Demoting some to cold_sptc')
+                old_hot = hot_sptc
+                hot_sptc = Counter(dict(candidates))
+                cold_update = Counter({k: v for k, v in old_hot.items() if k not in hot_sptc})
+                cold_sptc.update(cold_update)
             
-            if base % 1000 == 0:
-                print(f'Onto token number {base}')
+            if base % 500 == 0:
+                new_checkpt = time.time()
+                time_taken = int(new_checkpt - checkpt)
+                print(f'Onto token number {base} time spent {time_taken}s')
+                checkpt = new_checkpt
+
         self.sptc = sptc
         self.candidates = candidates
         self.trained_vocab = vocab
