@@ -4,11 +4,8 @@ import regex as re
 from typing import Tuple, Dict, List
 from collections import Counter
 from functools import partial
-from itertools import chain
 import multiprocessing as mp
 import json
-import numpy as np
-import pandas as pd
 import time
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
@@ -121,10 +118,27 @@ def get_pretoken_counts(input_path, desired_chunk_size=int(1e6), num_chunks=None
     else:
         pt_call = partial(mp_pt, input_path=input_path, special_tokens=[special_split_token])
         n_proc = min(num_processes, len(boundaries) - 1)
-        with mp.Pool(n_proc) as pool:
-            # print(f'Spawning {n_proc} processes!')
-            chunk_pt_counts = pool.starmap(pt_call, zip(boundaries[:-1], boundaries[1:]))
-        pt_counts = sum(chunk_pt_counts, start=Counter())
+        print(f'num boundaries {len(boundaries)}')
+        pt_counts = Counter()
+        if len(boundaries) >= 5 * n_proc:
+            # very large file
+            print(f'Very large files with {len(boundaries)}')
+            stride = 5 * n_proc
+            for base in range(0, len(boundaries), stride):
+                with mp.Pool(n_proc) as pool:
+                    # print(f'Spawning {n_proc} processes!')
+                    b_s, b_e = max(0, base - 1), min(base + stride, len(boundaries))
+                    chunk_pt_counts = pool.starmap(pt_call, zip(boundaries[b_s:b_e-1], boundaries[b_s+1:b_e]))
+                pt_counts += sum(chunk_pt_counts, start=Counter())
+        else:
+            with mp.Pool(n_proc) as pool:
+                # print(f'Spawning {n_proc} processes!')
+                chunk_pt_counts = pool.starmap(pt_call, zip(boundaries[:-1], boundaries[1:]))
+            pt_counts += sum(chunk_pt_counts, start=Counter())
+    if len(pt_counts) > 2e6:
+        print(f'Pre-filter num of distinct pre-token {len(pt_counts)}')
+        pt_counts = {pt: num for pt, num in pt_counts.items() if num > 1}
+        print(f'Post-filter num of distinct pre-token {len(pt_counts)}')
     return pt_counts
 
 def count_subpts(substats, start_len=2, width=20, counter=None):
@@ -310,7 +324,7 @@ class BytePairEncoder:
             safe_counter_deduct(cold_sptc, result[1])
             all_splits = result[0]
 
-            candidates = sorted(hot_sptc.items(), key=lambda tup: (tup[1], tup[0]), reverse=True)[:2*num_remain+100]
+            candidates = sorted(hot_sptc.items(), key=lambda tup: (tup[1], tup[0]), reverse=True)[:int(1.5*num_remain)+100]
             if cold_max >= candidates[0][1]:
                 print('Fishing out of cold_sptc')
                 cold_candidates = sorted(cold_sptc.items(), key=lambda tup: (tup[1], tup[0]), reverse=True)
@@ -318,18 +332,24 @@ class BytePairEncoder:
                     if not cold_sptc:
                         break
                     hot_sptc[cold_candidates[i][0]] = cold_sptc.pop(cold_candidates[i][0])
-                candidates = sorted(hot_sptc.items(), key=lambda tup: (tup[1], tup[0]), reverse=True)[:2*num_remain+100]
+                candidates = sorted(hot_sptc.items(), key=lambda tup: (tup[1], tup[0]), reverse=True)[:int(1.5*num_remain)+100]
                 if cold_sptc:
                     cold_max = max(cold_sptc.values())
                 else:
                     cold_max = 0
 
-            if len(hot_sptc) > 2 * len(candidates) + 500:
+            if len(hot_sptc) > 1.5 * len(candidates) + 500:
                 print('Demoting some to cold_sptc')
                 old_hot = hot_sptc
                 hot_sptc = Counter(dict(candidates))
                 cold_update = Counter({k: v for k, v in old_hot.items() if k not in hot_sptc})
                 cold_sptc.update(cold_update)
+                cold_max = max(cold_sptc.values())
+
+                for i in range(6):
+                    if len(cold_sptc) > 5 * self.vocab_size:
+                        print('Deleting some pairs from cold_sptc')
+                        cold_sptc = Counter({k: v for k, v in cold_sptc.items() if v >= i * 0.1 * cold_max})
             
             if base % 500 == 0:
                 new_checkpt = time.time()
@@ -408,15 +428,27 @@ if __name__ == '__main__':
     test_path = '../tests/fixtures/corpus.en'
     owt_train_path = '../data/owt_train.txt'
     owt_valid_path = '../data/owt_valid.txt'
+    tiny_train_path = '../data/TinyStoriesV2-GPT4-train.txt'
     bpeobj = BytePairEncoder()
     bpeobj.init_train(
+        # input_path=owt_train_path,
         input_path=owt_train_path,
-        vocab_size=1000,
+        vocab_size=32000,
         special_tokens=['<|endoftext|>'],
         pt_chunk_size=int(4e6),
-        pt_num_chunks=50,
-        # pt_path='../data/owt_train_pt_counts.json',
-        num_processes=2,
+        # pt_num_chunks=50,
+        pt_path='../data/owt_train_pt_counts.json',
+        num_processes=16,
     )
-    bpeobj.get_pt_stats()
-    # bpeobj.train()
+    # bpeobj.get_pt_stats()
+    bpeobj.train()
+    out_vocab_path = '../data/results/train_bpe_owt_train_vocab.pkl'
+    out_merges_path = '../data/results/train_bpe_owt_train_merges.pkl'
+    import pickle
+    with open(out_vocab_path, 'wb') as of:
+        pickle.dump(bpeobj.trained_vocab, of)
+
+    with open(out_merges_path, 'wb') as of:
+        pickle.dump(bpeobj.trained_merges, of)
+    print(f'Written {out_vocab_path}')
+    print(f'Written {out_merges_path}')
