@@ -563,7 +563,7 @@ class BytePairEncoder:
         with open(vocab_filepath, 'rb') as vf:
             vocab = pickle.load(vf)
         with open(merges_filepath, 'rb') as mf:
-            merges = pickle.load(vf)
+            merges = pickle.load(mf)
         return cls(vocab=vocab, merges=merges, special_tokens=special_tokens)
 
 

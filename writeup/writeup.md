@@ -65,3 +65,47 @@ print((i, j))
 
 The first such 2-bytes that it found is (128, 0), aka b'\x80\x00'
 
+
+
+## Problem (train_bpe_tinystories): BPE Training on TinyStories (2 points)
+
+**(a) Train a byte-level BPE tokenizer on the TinyStories dataset, using a maximum vocabulary size
+of 10,000. Make sure to add the TinyStories <|endoftext|> special token to the vocabulary.
+Serialize the resulting vocabulary and merges to disk for further inspection.**
+
+**How many hours and memory did training take? What is the longest token in the vocabulary? Does it make sense?**
+
+The longest token is b' responsibility'. Makes sense! For children's stories, that's probably the longest high-frequency word.
+
+
+**(b) Profile your code. What part of the tokenizer training process takes the most time?**
+
+Total runtime is 4m25s.
+Pre-tokenization took roughly 55 seconds, And then on average every 500 merges takes 22 seconds.
+The merging operation takes the longest amount of time: with the biggest culprit being the in-word update and token-pair count sort.
+
+
+## Problem (train_bpe_expts_owt): BPE Training on OpenWebText (2 points)
+
+**(a) Train a byte-level BPE tokenizer on the OpenWebText dataset, using a maximum vocabulary size of 32,000. Serialize the resulting vocabulary and merges to disk for further inspection.**
+
+**What is the longest token in the vocabulary? Does it make sense?**
+
+The longest token is `'-' * 64` (64 dashes). It probably makes sense as a webpage separator.
+
+**(b) Compare and contrast the tokenizer that you get training on TinyStories versus OpenWebText.**
+
+# Problem (tokenizer_experiments): Experiments with tokenizers (4 points)
+(a) Sample 10 documents from TinyStories and OpenWebText. Using your previously-trained TinyStories and OpenWebText tokenizers (10K and 32K vocabulary size, respectively), encode these
+sampled documents into integer IDs. What is each tokenizer’s compression ratio (bytes/token)?
+Deliverable: A one-to-two sentence response.
+(b) What happens if you tokenize your OpenWebText sample with the TinyStories tokenizer? Compare the compression ratio and/or qualitatively describe what happens.
+Deliverable: A one-to-two sentence response.
+(c) Estimate the throughput of your tokenizer (e.g., in bytes/second). How long would it take to
+tokenize the Pile dataset (825GB of text)?
+Deliverable: A one-to-two sentence response.
+(d) Using your TinyStories and OpenWebText tokenizers, encode the respective training and development datasets into a sequence of integer token IDs. We’ll use this later to train our language
+model. We recommend serializing the token IDs as a NumPy array of datatype uint16. Why is
+uint16 an appropriate choice?
+12
+Deliverable: A one-to-two sentence response.
