@@ -268,6 +268,8 @@ class BytePairEncoder:
             self.special_tokens = set([st.encode('utf-8') for st in special_tokens])
 
         # make sure vocab contains special_tokens
+        if vocab is None:
+            vocab = {}
         all_tokens = vocab.values()
         for st in self.special_tokens:
             if st not in all_tokens:
@@ -598,22 +600,23 @@ if __name__ == '__main__':
     bpeobj = BytePairEncoder()
     bpeobj.init_train(
         # input_path=owt_train_path,
-        input_path=owt_train_path,
-        vocab_size=32000,
+        input_path=tiny_train_path,
+        vocab_size=10000,
         special_tokens=['<|endoftext|>'],
         pt_chunk_size=int(4e6),
         # pt_num_chunks=50,
-        pt_path='../data/owt_train_pt_counts.json',
-        num_processes=16,
+        # pt_path='../data/owt_train_pt_counts.json',
+        # pt_path='../data/tinystories_train_pt_counts.json',
+        num_processes=1,
     )
     # bpeobj.get_pt_stats()
     bpeobj.train()
-    out_vocab_path = '../data/results/train_bpe_owt_train_vocab.pkl'
-    out_merges_path = '../data/results/train_bpe_owt_train_merges.pkl'
-    with open(out_vocab_path, 'wb') as of:
-        pickle.dump(bpeobj.trained_vocab, of)
+    # out_vocab_path = '../data/results/train_bpe_owt_train_vocab.pkl'
+    # out_merges_path = '../data/results/train_bpe_owt_train_merges.pkl'
+    # with open(out_vocab_path, 'wb') as of:
+    #     pickle.dump(bpeobj.trained_vocab, of)
 
-    with open(out_merges_path, 'wb') as of:
-        pickle.dump(bpeobj.trained_merges, of)
-    print(f'Written {out_vocab_path}')
-    print(f'Written {out_merges_path}')
+    # with open(out_merges_path, 'wb') as of:
+    #     pickle.dump(bpeobj.trained_merges, of)
+    # print(f'Written {out_vocab_path}')
+    # print(f'Written {out_merges_path}')
