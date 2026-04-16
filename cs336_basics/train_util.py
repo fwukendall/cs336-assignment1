@@ -51,8 +51,8 @@ def get_batch(
     idx1 = start_idx + torch.arange(0, seq_len)
     idx2 = start_idx + torch.arange(1, seq_len+1)
 
-    t1 = torch.from_numpy(tokens[idx1].astype(np.int64)).to(device=device)
-    t2 = torch.from_numpy(tokens[idx2].astype(np.int64)).to(device=device)
+    t1 = torch.from_numpy(tokens[idx1.numpy()].astype(np.int64)).to(device=device)
+    t2 = torch.from_numpy(tokens[idx2.numpy()].astype(np.int64)).to(device=device)
     return (t1, t2)
 
 
@@ -170,7 +170,7 @@ def cross_entropy(
     logits_2d = logits.reshape(-1, logits.shape[-1])
     targets_1d = targets.reshape(-1)
     out_logits = logits_2d[torch.arange(targets_1d.shape[0]), targets_1d]
-    denom_sum = torch.log(torch.exp(logits).sum(dim=-1))
+    denom_sum = torch.log(torch.exp(logits_2d).sum(dim=-1))
     ce_loss = (-out_logits + denom_sum).flatten().mean()
     return ce_loss
 

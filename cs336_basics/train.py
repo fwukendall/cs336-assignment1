@@ -29,7 +29,7 @@ def run_train(
     lr_sched_params = hyperparams['train_params']['lr_schedule']
     device = torch.device('cuda')
 
-    lm = TransformerLM(**model_dims)
+    lm = TransformerLM(device=device, dtype=torch.float32, **model_dims)
     sched = partial(get_cosine_learning_rate_sched, **lr_sched_params)
     opt = AdamW(lm.parameters(), lr=lr_sched_params['a_min'], **adam_params)
 
@@ -55,7 +55,7 @@ def run_train(
             x, y = get_train_batch()
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 logits = lm(x)
-                ce = cross_entropy(logits, y)
+                ce = cross_entropy(logits, y) / grad_accum_steps
             
             ce.backward() # accumulates gradient
         grad_clip()
@@ -63,7 +63,10 @@ def run_train(
         for group in opt.param_groups:
             group['lr'] = lr
         opt.step()
+
+        # TODO add tensorboard logging
         print(t, ce.item())
+        
 
         if t % 5 == 0:
             save_checkpoint(lm, opt, t, checkpt_path)

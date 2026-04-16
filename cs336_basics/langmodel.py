@@ -185,7 +185,7 @@ class CausalMultiHeadSelfAttention(nn.Module):
                 xpos = token_positions
             Q_mh = self.rope(Q_mh, xpos)
             K_mh = self.rope(K_mh, xpos)
-        mask_T = torch.tril(torch.ones(*x.shape[:-1], x.shape[-2])) == 1
+        mask_T = (torch.tril(torch.ones(*x.shape[:-1], x.shape[-2])) == 1).to(self.device)
         mask_mh = mask_T.broadcast_to((num_heads, *mask_T.shape))
         raw_attention_out = scaled_dot_product_attention(Q_mh, K_mh, V_mh, mask_mh)
         attention_out = rearrange(
