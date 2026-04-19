@@ -24,6 +24,16 @@ class TransformerLM(nn.Module):
         if dtype is None:
             dtype = torch.float32
         
+        self.device = device
+        self.dtype = dtype
+
+        self.context_length = context_length
+        self.vocab_size = vocab_size
+        self.num_layers = num_layers
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_ff = d_ff
+        
         self.token_embeddings = Embedding(
             num_embeddings=vocab_size,
             embedding_dim=d_model,
@@ -150,6 +160,9 @@ class CausalMultiHeadSelfAttention(nn.Module):
         self.output_proj = Linear(d_model, d_model, device, dtype)
         self._register_load_state_dict_pre_hook(self._qkv_fusion_hook)
 
+        mask = (torch.tril(torch.ones(max_seq_len, max_seq_len)) == 1).to(self.device)
+        self.register_buffer("causal_mask", mask, persistent=True)
+
     def _qkv_fusion_hook(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
         # 'prefix' is the dot-notation path to THIS specific module 
         # (e.g., 'layers.0.attn.')
@@ -180,12 +193,13 @@ class CausalMultiHeadSelfAttention(nn.Module):
         V_mh = torch.stack(V_all.split(self.d_k, dim=-1))
         if self.rope:
             if token_positions is None:
-                xpos = torch.arange(0, x.shape[-2]).expand(x.shape[:-1])
+                xpos = torch.arange(0, x.shape[-2], device=self.device).expand(x.shape[:-1])
             else:
                 xpos = token_positions
             Q_mh = self.rope(Q_mh, xpos)
             K_mh = self.rope(K_mh, xpos)
-        mask_T = (torch.tril(torch.ones(*x.shape[:-1], x.shape[-2])) == 1).to(self.device)
+        causal_mask = self.causal_mask
+        mask_T = causal_mask[:x.shape[-2], :x.shape[-2]].view(*([1] * (len(x.shape)-2)), x.shape[-2], x.shape[-2])
         mask_mh = mask_T.broadcast_to((num_heads, *mask_T.shape))
         raw_attention_out = scaled_dot_product_attention(Q_mh, K_mh, V_mh, mask_mh)
         attention_out = rearrange(
@@ -278,9 +292,9 @@ class RotaryPositionalEmbedding(nn.Module):
         d_k = self.d_k
         theta = self.theta
         self.max_seq_len = max_seq_len
-        denom_exponents = torch.arange(0, d_k, 2) / d_k
+        denom_exponents = torch.arange(0, d_k, 2, device=self.device) / d_k
         denom_invs = theta ** (-denom_exponents)
-        positions = torch.arange(0, max_seq_len)
+        positions = torch.arange(0, max_seq_len, device=self.device)
         angles = einsum(positions, denom_invs, 'd_seq, d_k -> d_seq d_k')
         cosines = torch.cos(angles)
         sines = torch.sin(angles)

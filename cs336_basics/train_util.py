@@ -11,11 +11,42 @@ import numpy.typing as npt
 import numpy as np
 
 
+def save_model(
+    model: torch.nn.Module,
+    config: dict,
+    out: str | os.PathLike | BinaryIO | IO[bytes],
+) -> None:
+    msd = model.state_dict()
+    torch.save(
+        {
+            'model': msd,
+            'config': config,
+        },
+        out,
+    )
+    return
+
+
+def load_model_for_inference(
+    src: str | os.PathLike | BinaryIO | IO[bytes],
+    constructor: type,
+    device: str | torch.device = 'cuda',
+) -> torch.nn.Module:
+    saved = torch.load(src, weights_only=False)
+    config = saved['config']
+    if 'model_dimension' in config:
+        config = config['model_dimension']
+    model = constructor(device=device, **config)
+    model.load_state_dict(saved['model'])
+    return model
+
+
 def save_checkpoint(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     iteration: int,
     out: str | os.PathLike | BinaryIO | IO[bytes],
+    config: dict,
 ) -> None:
     msd = model.state_dict()
     osd = optimizer.state_dict()
@@ -24,6 +55,7 @@ def save_checkpoint(
             'model': msd,
             'optimizer': osd,
             'iteration': iteration,
+            'config': config,
         },
         out,
     )
@@ -33,11 +65,12 @@ def save_checkpoint(
 def load_checkpoint(
     src: str | os.PathLike | BinaryIO | IO[bytes],
     model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
+    optimizer: torch.optim.Optimizer | None = None,
 ) -> int:
-    checkpt = torch.load(src)
+    checkpt = torch.load(src, weights_only=False)
     model.load_state_dict(checkpt['model'])
-    optimizer.load_state_dict(checkpt['optimizer'])
+    if optimizer:
+        optimizer.load_state_dict(checkpt['optimizer'])
     return checkpt['iteration']
 
 
@@ -46,7 +79,10 @@ def get_batch(
     batch_size: int,
     seq_len: int,
     device: str,
+    seed: int|None = None,
 ) -> tuple[Int[torch.Tensor, 'batch_size seq_len'], Int[torch.Tensor, 'batch_size seq_len']]:
+    if seed is not None:
+        torch.manual_seed(seed)
     start_idx = torch.randint(low=0, high=tokens.shape[0]-seq_len, size=(batch_size, 1))
     idx1 = start_idx + torch.arange(0, seq_len)
     idx2 = start_idx + torch.arange(1, seq_len+1)
@@ -88,7 +124,7 @@ def get_cosine_learning_rate_sched(
         return a_min
     
     angle = (t - warmup_iters) / (cosine_cycle_iters - warmup_iters) * np.pi
-    return a_min + 0.5 * (1 + np.cos(angle)) * (a_max - a_min)
+    return float(a_min + 0.5 * (1 + np.cos(angle)) * (a_max - a_min))
 
 dims_GPT2XL = {
     'context_length': 1_024,
@@ -169,7 +205,7 @@ def cross_entropy(
     logits = logits - logit_max
     logits_2d = logits.reshape(-1, logits.shape[-1])
     targets_1d = targets.reshape(-1)
-    out_logits = logits_2d[torch.arange(targets_1d.shape[0]), targets_1d]
+    out_logits = logits_2d[torch.arange(targets_1d.shape[0], device=logits.device), targets_1d]
     denom_sum = torch.log(torch.exp(logits_2d).sum(dim=-1))
     ce_loss = (-out_logits + denom_sum).flatten().mean()
     return ce_loss
@@ -214,8 +250,13 @@ class AdamW(torch.optim.Optimizer):
                     v = torch.zeros_like(p.data)
 
                 grad = p.grad.data # Get the gradient of loss with respect to p.
-                m = b1 * m + (1 - b1) * grad
-                v = b2 * v + (1 - b2) * grad**2
+
+                # m = b1 * m + (1 - b1) * grad
+                # v = b2 * v + (1 - b2) * grad**2
+
+                # perform in-place updates to m and v
+                m.mul_(b1).add_(grad, alpha=1 - b1)
+                v.mul_(b2).addcmul_(grad, grad, value=1 - b2)
                 lr_t = lr * np.sqrt(1 - b2**t) / (1 - b1**t)
                 p.data -= lr_t * m / (torch.sqrt(v) + eps) # Update weight tensor in-place.
                 p.data -= lr * wd * p.data

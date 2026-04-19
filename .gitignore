@@ -7,6 +7,10 @@ __pycache__/
 
 data/
 *.ipynb
+cs336_basics/runs
+
+scalene-*.html
+scalene-*.json
 
 # C extensions
 *.so

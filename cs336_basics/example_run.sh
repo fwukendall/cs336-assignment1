@@ -1,0 +1,1 @@
+uv run python infer.py --model_src ../data/results/full_v20260418_w1e3_s1e4_lr001-0001_b64_out.pkl --bpe_vocab_path ../data/results/train_bpe_tiny_train_vocab.pkl --bpe_merges_path ../data/results/train_bpe_tiny_train_merges.pkl --temp 0.5 --p 1.0 --seed 20260419 --max_out 200 --num_tries 3

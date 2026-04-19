@@ -2,16 +2,16 @@ smoke:
   name: "smoke"
   model_dimension:
     vocab_size: 10000
-    context_length: 128
+    context_length: 256
     num_layers: 4
-    d_model: 128
-    num_heads: 8
-    d_ff: 336
+    d_model: 512
+    num_heads: 16
+    d_ff: 1344
     theta: 10000
   train_params:
-    batch_size: 2
+    batch_size: 16
     grad_accum_steps: 4
-    max_steps: 10
+    max_steps: 200
     grad_max: 1.0
     adam_params:
       weight_decay: 0.01
@@ -20,14 +20,13 @@ smoke:
         - 0.999
       eps: 1.0e-8
     lr_schedule:
-      warmup_iters: 10
-      cosine_cycle_iters: 50
+      warmup_iters: 50
       a_min: 1.0e-4
       a_max: 1.0e-3
 
 
-full_v20260416:
-  name: "full_v20260416"
+full_v20260418_w1e3_s1e4_lr001-0001_b64:
+  name: "full_v20260418_w1e3_s1e4_lr001-0001_b64"
   model_dimension:
     vocab_size: 10000
     context_length: 256
@@ -37,6 +36,9 @@ full_v20260416:
     d_ff: 1344
     theta: 10000
   train_params:
+    batch_size: 16
+    grad_accum_steps: 4
+    max_steps: 20000
     grad_max: 1.0
     adam_params:
       weight_decay: 0.01
@@ -45,7 +47,8 @@ full_v20260416:
         - 0.999
       eps: 1.0e-8
     lr_schedule:
-      warmup_iters: 10
-      cosine_cycle_iters: 50
+      warmup_iters: 500
       a_min: 1.0e-4
       a_max: 1.0e-3
+
+
