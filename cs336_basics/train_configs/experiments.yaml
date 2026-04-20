@@ -358,8 +358,8 @@ tiny_ablation_silu:
     theta: 10000
     use_silu: True
   train_params:
-    batch_size: 16
-    grad_accum_steps: 4
+    batch_size: 64
+    grad_accum_steps: 1
     max_steps: 20000
     grad_max: 1.0
     adam_params:
@@ -386,8 +386,8 @@ tiny_ablation_nope:
     theta: 10000
     use_rope: False
   train_params:
-    batch_size: 16
-    grad_accum_steps: 4
+    batch_size: 64
+    grad_accum_steps: 1
     max_steps: 20000
     grad_max: 1.0
     adam_params:
@@ -414,8 +414,8 @@ tiny_ablation_nonorm:
     theta: 10000
     norm_mode: "no"
   train_params:
-    batch_size: 16
-    grad_accum_steps: 4
+    batch_size: 64
+    grad_accum_steps: 1
     max_steps: 20000
     grad_max: 1.0
     adam_params:
@@ -442,8 +442,8 @@ tiny_ablation_postnorm:
     theta: 10000
     norm_mode: "post"
   train_params:
-    batch_size: 16
-    grad_accum_steps: 4
+    batch_size: 64
+    grad_accum_steps: 1
     max_steps: 20000
     grad_max: 1.0
     adam_params:
