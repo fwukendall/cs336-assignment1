@@ -29,7 +29,7 @@ def sample_new_token(
         if p < 1.0:
             cutoff = irange[cum_v >= p][0]
             cum_v, i_sorted = cum_v[:cutoff+1], i_sorted[:cutoff+1]
-            cum_v.div_(cum_v[-1])
+            cum_v.div_(cum_v[-1].item())
         randfloat = torch.rand(1)[0]
         choice = i_sorted[cum_v >= randfloat][0]
     return int(choice.item())
@@ -91,10 +91,11 @@ def run(
         np.random.seed(seed)
         torch.manual_seed(seed)
     boiler_prompts = [
-        'Once upon a time, there',
-        'One day, a brave little dog named',
-        'In the middle of the forest, there',
-        'Lily and Tom went to the park and ran into a magic'
+        '<|endoftext|>',
+        # 'Once upon a time, there',
+        # 'One day, a brave little dog named',
+        # 'In the middle of the forest, there',
+        # 'Lily and Tom went to the park and ran into a magic'
     ]
     for _ in range(num_tries):
         prompt = str(np.random.choice(boiler_prompts))
