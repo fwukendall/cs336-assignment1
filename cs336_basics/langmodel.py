@@ -15,6 +15,9 @@ class TransformerLM(nn.Module):
         num_heads: Int,
         d_ff: Int,
         theta: Float = 10000.0,
+        use_rope: bool = True,
+        use_silu: bool = False,
+        norm_mode: str = 'pre',
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ):
@@ -33,6 +36,9 @@ class TransformerLM(nn.Module):
         self.d_model = d_model
         self.num_heads = num_heads
         self.d_ff = d_ff
+        self.norm_mode = norm_mode
+        self.use_silu = use_silu
+        self.use_rope = use_rope
         
         self.token_embeddings = Embedding(
             num_embeddings=vocab_size,
@@ -48,6 +54,9 @@ class TransformerLM(nn.Module):
                 d_ff=d_ff,
                 max_seq_len=context_length,
                 theta=theta,
+                use_rope=use_rope,
+                use_silu=use_silu,
+                norm_mode=norm_mode,
                 device=device,
                 dtype=dtype,
             )
@@ -87,6 +96,9 @@ class PreNormTransformer(nn.Module):
         d_ff: Int,
         max_seq_len: Int = 128,
         theta: Float = 10000.0,
+        use_silu: bool = False,
+        use_rope: bool = True,
+        norm_mode: str = 'pre',
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ):
@@ -95,32 +107,53 @@ class PreNormTransformer(nn.Module):
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         if dtype is None:
             dtype = torch.float32
+        
+        self.norm_mode = norm_mode
 
-        self.ln1 = RMSNorm(d_model, device=device, dtype=dtype)
+        if self.norm_mode in ['pre', 'post']:
+            self.ln1 = RMSNorm(d_model, device=device, dtype=dtype)
+            self.ln2 = RMSNorm(d_model, device=device, dtype=dtype)
+
         self.attn = CausalMultiHeadSelfAttention(
             d_model=d_model,
             num_heads=num_heads,
             max_seq_len=max_seq_len,
             device=device,
             dtype=dtype,
-            use_rope=True,
+            use_rope=use_rope,
             theta=theta,
         )
-        self.ln2 = RMSNorm(d_model, device=device, dtype=dtype)
-        self.ffn = SwiGLU(
-            d_model=d_model,
-            d_ff=d_ff,
-            device=device,
-            dtype=dtype,
-        )
+        if use_silu:
+            self.ffn = SiLU(
+                d_model=d_model,
+                d_ff=d_ff,
+                device=device,
+                dtype=dtype,
+            )
+        else:
+            self.ffn = SwiGLU(
+                d_model=d_model,
+                d_ff=d_ff,
+                device=device,
+                dtype=dtype,
+            )
     
     def forward(
         self,
         x: Float[torch.Tensor, " ... seq_len d_model"],
         token_positions: Int[torch.Tensor, " ... seq_len"] | None = None,
     ) -> Float[torch.Tensor, " ... seq_len d_model"]:
-        layer1_out = self.attn(self.ln1(x), token_positions) + x
-        layer2_out = self.ffn(self.ln2(layer1_out)) + layer1_out
+        if self.norm_mode == 'pre':
+            layer1_out = self.attn(self.ln1(x), token_positions) + x
+            layer2_out = self.ffn(self.ln2(layer1_out)) + layer1_out
+        elif self.norm_mode == 'post':
+            layer1_out = self.ln1(self.attn(x, token_positions) + x)
+            layer2_out = self.ln2(self.ffn(layer1_out) + layer1_out)
+        elif self.norm_mode == 'no':
+            layer1_out = self.attn(x, token_positions) + x
+            layer2_out = self.ffn(layer1_out) + layer1_out
+        else:
+            raise ValueError(f'invalid norm_mode {self.norm_mode}')
         return layer2_out
 
 
@@ -303,6 +336,38 @@ class RotaryPositionalEmbedding(nn.Module):
         self.register_buffer('cosines', cosines, persistent=True)
         self.register_buffer('sines', sines, persistent=True)
         return
+
+
+class SiLU(nn.Module):
+    def __init__(
+        self,
+        d_model: Int,
+        d_ff: Int,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        '''
+        W2.dot(SiLU(W1.dot(x)))
+        '''
+        super().__init__()
+        self.d_model = d_model
+        self.d_ff = d_ff
+        if device is None:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if dtype is None:
+            dtype = torch.float32
+        self.device = device
+        self.dtype = dtype
+        self.w1 = Linear(d_model, d_ff, device, dtype)
+        self.w2 = Linear(d_ff, d_model, device, dtype)
+
+    
+    def forward(
+        self,
+        x: Float[torch.Tensor, '... d_model']
+    ) -> Float[torch.Tensor, '... d_model']:
+        w1_out = self.w1(x)
+        return self.w2(sigmoid(w1_out) * w1_out)
 
 
 class SwiGLU(nn.Module):
