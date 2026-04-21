@@ -117,7 +117,7 @@ def run_train(
         seed = max_steps
 
     cum_train_loss_sum = 0
-    last_logging_t = 0
+    last_logging_t = start_epoch - 1
     start_time = time.time()
     for t in range(start_epoch, max_steps+1):
         opt.zero_grad(set_to_none=True)
@@ -143,7 +143,7 @@ def run_train(
                     'Loss/train': loss,
                     'Loss/valid': loss,
                     'Time/train': 0.0,
-                }, run_name='.')
+                }, run_name='hparam_metrics')
                 has_added_hparams = True
             writer.add_scalar('Loss/train', ce.item() * grad_accum_steps, t)
         
