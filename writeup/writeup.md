@@ -382,3 +382,80 @@ flops_per_step = 6.3 * 1.6G * 1M = 10080T
 effective_use = 19.5T * 0.5 = 9.75T
 time_per_step = 10080FLOPs / 9.75(FLOP/s) = 1034s
 time_total = 984s * 400K ~= 4786days
+
+## Problem (experiments)
+
+**(a) Generate text from your trained TinyStories model, comment on the fluency**
+
+**(c) Compare learning rates**
+
+batchsize=64
+
+learning rate schedule:
+max_lr is reported lr
+min_lr = 0.1 * max_lr
+warmup_iters = 0.025 * total_iters
+
+Loss curves
+
+learning rate 1e-4, 1e-3 converged nicely, with 1e-3 being able to reach a lower final loss. 1e-2 behaved fine near the end, but show divergent behavior right after warmup, and reached a much higher final loss.
+
+![lr 1e-4, 1e-3, 1e-2](lrexp_convergent.png)
+
+Learning rate 1e-1 and 1.0 both diverged violently, but somehow both reached non-crazy final loss of 3.76 and 5.47.
+
+![lr 0.1](lrexp_0.1.png)
+![lr 1.0](lrexp_1.0.png)
+
+
+On final validation loss (separately evaluated, 8192 seeded-sampled sequences of 256-length)
+
+----------------------------------------------------------------
+lr=1e-4: 1.5622
+
+----------------------------------------------------------------
+lr=1e-3: 1.3552
+
+----------------------------------------------------------------
+lr=1e-2: 3.6069
+
+----------------------------------------------------------------
+lr=1e-1: 3.7604
+
+----------------------------------------------------------------
+lr=1.00: 5.4757
+
+
+**(d) Compare batch sizes**
+
+Maintain total number of tokens constant
+total_iters = 327_680_000 / (batch_size x 256)
+learning_rate_max = 0.001 * sqrt(batch_size / 64)
+learning_rate_min = 0.0001 * sqrt(batch_size / 64)
+warmup_iters = 0.025 * total_iters
+
+The influence of batch_size, with a properly scaled learning rate, is much less significant than learning rate. What I found here is that batch_size=4 reached the best result (with 32e4 iters). But in terms of wall clock, bs 64, 128, 256 are all very good, and batch_size 4 took roughly 2x amount of time to get into sub-1.4 
+
+![batch_size=1,4,16,64,128,256](batch_size.png)
+
+On final validation loss (separately evaluated, 8192 seeded-sampled sequences of 256-length)
+
+----------------------------------------------------------------
+bs=1: 1.3748
+
+----------------------------------------------------------------
+bs=4: 1.3348
+
+----------------------------------------------------------------
+bs=16: 1.3467
+
+----------------------------------------------------------------
+bs=64: 1.3552
+
+----------------------------------------------------------------
+bs=128: 1.3550
+
+----------------------------------------------------------------
+bs=256: 1.3638
+
+**(e) Do ablations on nope v.s. rope, silu v.s. swiglu, pre-norm v.s. post v.s. no-norm**
